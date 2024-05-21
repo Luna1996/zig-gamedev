@@ -622,13 +622,17 @@ pub const TextureUsage = packed struct(u32) {
 };
 
 pub const ChainedStruct = extern struct {
-    next: ?*const ChainedStruct,
+    next: ?*const ChainedStruct = null,
     struct_type: StructType,
 };
 
 pub const ChainedStructOut = extern struct {
     next: ?*ChainedStructOut,
     struct_type: StructType,
+};
+
+pub const InstanceDescriptor = extern struct {
+  next_in_chain: ?*const ChainedStructOut = null
 };
 
 pub const AdapterProperties = extern struct {
@@ -908,11 +912,11 @@ pub const ShaderModuleWGSLDescriptor = extern struct {
 pub const SwapChainDescriptor = extern struct {
     next_in_chain: ?*const ChainedStruct = null,
     label: ?[*:0]const u8 = null,
-    usage: TextureUsage,
-    format: TextureFormat,
-    width: u32,
-    height: u32,
-    present_mode: PresentMode,
+    usage: TextureUsage = .{ .render_attachment = true },
+    format: TextureFormat = .bgra8_unorm,
+    width: u32 = 0,
+    height: u32 = 0,
+    present_mode: PresentMode = .fifo,
 };
 
 pub const Extent2D = extern struct {
@@ -1024,7 +1028,7 @@ pub const SurfaceDescriptor = extern struct {
 pub const RequestAdapterOptions = extern struct {
     next_in_chain: ?*const ChainedStruct = null,
     compatible_surface: ?Surface = null,
-    power_preference: PowerPreference,
+    power_preference: PowerPreference = .undef,
     backend_type: BackendType = .undef,
     force_fallback_adapter: bool = false,
     compatibility_mode: bool = false,
@@ -2846,3 +2850,25 @@ pub const TextureView = *opaque {
     }
     extern fn wgpuTextureViewRelease(texture_view: TextureView) void;
 };
+
+// Defined in dawn.cpp
+pub fn createDawnNativeInstance(desc: InstanceDescriptor) DawnNativeInstance {
+    return dniCreate(&desc);
+}
+extern fn dniCreate(*const InstanceDescriptor) DawnNativeInstance;
+
+pub const DawnNativeInstance = *opaque {
+    pub fn destroy(self: DawnNativeInstance) void {
+        dniDestroy(self);
+    }
+    extern fn dniDestroy(DawnNativeInstance) void;
+
+    pub fn getWGPUInstance(self: DawnNativeInstance) Instance {
+        dniGetWgpuInstance(self);
+    }
+    extern fn dniGetWgpuInstance(DawnNativeInstance) Instance;
+};
+
+pub const DawnProcsTable = *opaque {};
+pub extern fn dnGetProcs() DawnProcsTable;
+pub extern fn dawnProcSetProcs(DawnProcsTable) void;

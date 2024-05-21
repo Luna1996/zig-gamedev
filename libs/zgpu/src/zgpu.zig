@@ -80,7 +80,7 @@ pub const GraphicsContext = struct {
 
     stats: FrameStats = .{},
 
-    native_instance: DawnNativeInstance,
+    native_instance: wgpu.DawnNativeInstance,
     instance: wgpu.Instance,
     device: wgpu.Device,
     queue: wgpu.Queue,
@@ -116,12 +116,11 @@ pub const GraphicsContext = struct {
         window_provider: WindowProvider,
         options: GraphicsContextOptions,
     ) !*GraphicsContext {
-        dawnProcSetProcs(dnGetProcs());
+        wgpu.dawnProcSetProcs(wgpu.dnGetProcs());
+        const native_instance = wgpu.createDawnNativeInstance(.{});
+        errdefer native_instance.destroy();
 
-        const native_instance = dniCreate();
-        errdefer dniDestroy(native_instance);
-
-        const instance = dniGetWgpuInstance(native_instance).?;
+        const instance = native_instance.getWGPUInstance();
 
         const adapter = adapter: {
             const Response = struct {
@@ -292,7 +291,7 @@ pub const GraphicsContext = struct {
         gctx.swapchain.release();
         gctx.queue.release();
         gctx.device.release();
-        dniDestroy(gctx.native_instance);
+        gctx.native_instance.destroy();
         allocator.destroy(gctx);
     }
 
@@ -1061,17 +1060,6 @@ pub const GraphicsContext = struct {
         }
     }
 };
-
-// Defined in dawn.cpp
-const DawnNativeInstance = ?*opaque {};
-const DawnProcsTable = ?*opaque {};
-extern fn dniCreate() DawnNativeInstance;
-extern fn dniDestroy(dni: DawnNativeInstance) void;
-extern fn dniGetWgpuInstance(dni: DawnNativeInstance) ?wgpu.Instance;
-extern fn dnGetProcs() DawnProcsTable;
-
-// Defined in Dawn codebase
-extern fn dawnProcSetProcs(procs: DawnProcsTable) void;
 
 /// Helper to create a buffer BindGroupLayoutEntry.
 pub fn bufferEntry(

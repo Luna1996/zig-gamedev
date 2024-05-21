@@ -8,8 +8,8 @@ extern "C" {
 
 typedef struct DawnNativeInstanceImpl* DawnNativeInstance;
 
-DawnNativeInstance dniCreate(void) {
-    return reinterpret_cast<DawnNativeInstance>(new dawn::native::Instance());
+DawnNativeInstance dniCreate(const WGPUInstanceDescriptor* desc) {
+    return reinterpret_cast<DawnNativeInstance>(new dawn::native::Instance(desc));
 }
 
 void dniDestroy(DawnNativeInstance dni) {
