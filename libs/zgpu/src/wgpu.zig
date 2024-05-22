@@ -771,8 +771,8 @@ pub const QuerySetDescriptor = extern struct {
     label: ?[*:0]const u8 = null,
     query_type: QueryType,
     count: u32,
-    pipeline_statistics: ?[*]const PipelineStatisticName,
-    pipeline_statistics_count: usize,
+    pipeline_statistics: ?[*]const PipelineStatisticName = null,
+    pipeline_statistics_count: usize = 0,
 };
 
 pub const RenderBundleEncoderDescriptor = extern struct {
