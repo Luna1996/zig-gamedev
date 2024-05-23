@@ -632,7 +632,7 @@ pub const ChainedStructOut = extern struct {
 };
 
 pub const InstanceDescriptor = extern struct {
-  next_in_chain: ?*const ChainedStructOut = null
+  next_in_chain: ?*const ChainedStruct = null
 };
 
 pub const AdapterProperties = extern struct {
@@ -1356,6 +1356,9 @@ pub const Buffer = *opaque {
         return @as([*]T, @ptrCast(@alignCast(ptr)))[0..len];
     }
     extern fn wgpuBufferGetMappedRange(buffer: Buffer, offset: usize, size: usize) ?*anyopaque;
+
+    pub const getMapState = wgpuBufferGetMapState;
+    extern fn wgpuBufferGetMapState(buffer: Buffer) BufferMapState;
 
     // `offset` has to be a multiple of 8 (Dawn's validation layer will warn).
     // `size` has to be a multiple of 4 (Dawn's validation layer will warn).
@@ -2864,7 +2867,7 @@ pub const DawnNativeInstance = *opaque {
     extern fn dniDestroy(DawnNativeInstance) void;
 
     pub fn getWGPUInstance(self: DawnNativeInstance) Instance {
-        dniGetWgpuInstance(self);
+        return dniGetWgpuInstance(self);
     }
     extern fn dniGetWgpuInstance(DawnNativeInstance) Instance;
 };
