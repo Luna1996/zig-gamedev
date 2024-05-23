@@ -1529,6 +1529,9 @@ pub fn arrowButton(label: [:0]const u8, args: ArrowButton) bool {
 }
 extern fn zguiArrowButton(label: [*:0]const u8, dir: Direction) bool;
 //--------------------------------------------------------------------------------------------------
+pub const closeButton = zguiCloseButton;
+extern fn zguiCloseButton(id: Ident, x: f32, y: f32) bool;
+//--------------------------------------------------------------------------------------------------
 const Image = struct {
     w: f32,
     h: f32,

@@ -2045,15 +2045,14 @@ pub const Instance = *opaque {
         userdata: ?*anyopaque,
     ) void;
 
-    pub fn reference(instance: Instance) void {
-        wgpuInstanceReference(instance);
-    }
+    pub const reference = wgpuInstanceReference;
     extern fn wgpuInstanceReference(instance: Instance) void;
 
-    pub fn release(instance: Instance) void {
-        wgpuInstanceRelease(instance);
-    }
+    pub const release = wgpuInstanceRelease;
     extern fn wgpuInstanceRelease(instance: Instance) void;
+
+    pub const processEvents = wgpuInstanceProcessEvents;
+    extern fn wgpuInstanceProcessEvents(instance: Instance) void;
 };
 
 pub const PipelineLayout = *opaque {

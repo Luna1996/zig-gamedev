@@ -966,6 +966,10 @@ ZGUI_API bool zguiArrowButton(const char* str_id, ImGuiDir dir) {
     return ImGui::ArrowButton(str_id, dir);
 }
 
+ZGUI_API bool zguiCloseButton(ImGuiID id, float x, float y) {
+  return ImGui::CloseButton(id, { x, y });
+}
+
 ZGUI_API void zguiImage(
     ImTextureID user_texture_id,
     float w,
