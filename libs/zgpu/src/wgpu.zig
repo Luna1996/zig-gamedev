@@ -916,7 +916,7 @@ pub const SwapChainDescriptor = extern struct {
     format: TextureFormat = .bgra8_unorm,
     width: u32 = 0,
     height: u32 = 0,
-    present_mode: PresentMode = .fifo,
+    present_mode: PresentMode = .mailbox,
 };
 
 pub const Extent2D = extern struct {
