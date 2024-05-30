@@ -824,7 +824,7 @@ pub const ColorTargetState = extern struct {
     next_in_chain: ?*const ChainedStruct = null,
     format: TextureFormat,
     blend: ?*const BlendState = null,
-    write_mask: ColorWriteMask = ColorWriteMask.all,
+    write_mask: ColorWriteMask = .{},
 };
 
 pub const FragmentState = extern struct {
@@ -944,48 +944,48 @@ pub const TextureDescriptor = extern struct {
 };
 
 pub const Limits = extern struct {
-    max_texture_dimension_1d: u32,
-    max_texture_dimension_2d: u32,
-    max_texture_dimension_3d: u32,
-    max_texture_array_layers: u32,
-    max_bind_groups: u32,
-    max_bind_groups_plus_vertex_buffers: u32,
-    max_bindings_per_bind_group: u32,
-    max_dynamic_uniform_buffers_per_pipeline_layout: u32,
-    max_dynamic_storage_buffers_per_pipeline_layout: u32,
-    max_sampled_textures_per_shader_stage: u32,
-    max_samplers_per_shader_stage: u32,
-    max_storage_buffers_per_shader_stage: u32,
-    max_storage_textures_per_shader_stage: u32,
-    max_uniform_buffers_per_shader_stage: u32,
-    max_uniform_buffer_binding_size: u64,
-    max_storage_buffer_binding_size: u64,
-    min_uniform_buffer_offset_alignment: u32,
-    min_storage_buffer_offset_alignment: u32,
-    max_vertex_buffers: u32,
-    max_buffer_size: u64,
-    max_vertex_attributes: u32,
-    max_vertex_buffer_array_stride: u32,
-    max_inter_stage_shader_components: u32,
-    max_inter_stage_shader_variables: u32,
-    max_color_attachments: u32,
-    max_color_attachment_bytes_per_sample: u32,
-    max_compute_workgroup_storage_size: u32,
-    max_compute_invocations_per_workgroup: u32,
-    max_compute_workgroup_size_x: u32,
-    max_compute_workgroup_size_y: u32,
-    max_compute_workgroup_size_z: u32,
-    max_compute_workgroups_per_dimension: u32,
+    max_texture_dimension_1d: u32 = 0,
+    max_texture_dimension_2d: u32 = 0,
+    max_texture_dimension_3d: u32 = 0,
+    max_texture_array_layers: u32 = 0,
+    max_bind_groups: u32 = 0,
+    max_bind_groups_plus_vertex_buffers: u32 = 0,
+    max_bindings_per_bind_group: u32 = 0,
+    max_dynamic_uniform_buffers_per_pipeline_layout: u32 = 0,
+    max_dynamic_storage_buffers_per_pipeline_layout: u32 = 0,
+    max_sampled_textures_per_shader_stage: u32 = 0,
+    max_samplers_per_shader_stage: u32 = 0,
+    max_storage_buffers_per_shader_stage: u32 = 0,
+    max_storage_textures_per_shader_stage: u32 = 0,
+    max_uniform_buffers_per_shader_stage: u32 = 0,
+    max_uniform_buffer_binding_size: u64 = 0,
+    max_storage_buffer_binding_size: u64 = 0,
+    min_uniform_buffer_offset_alignment: u32 = 0,
+    min_storage_buffer_offset_alignment: u32 = 0,
+    max_vertex_buffers: u32 = 0,
+    max_buffer_size: u64 = 0,
+    max_vertex_attributes: u32 = 0,
+    max_vertex_buffer_array_stride: u32 = 0,
+    max_inter_stage_shader_components: u32 = 0,
+    max_inter_stage_shader_variables: u32 = 0,
+    max_color_attachments: u32 = 0,
+    max_color_attachment_bytes_per_sample: u32 = 0,
+    max_compute_workgroup_storage_size: u32 = 0,
+    max_compute_invocations_per_workgroup: u32 = 0,
+    max_compute_workgroup_size_x: u32 = 0,
+    max_compute_workgroup_size_y: u32 = 0,
+    max_compute_workgroup_size_z: u32 = 0,
+    max_compute_workgroups_per_dimension: u32 = 0,
 };
 
 pub const RequiredLimits = extern struct {
     next_in_chain: ?*const ChainedStruct = null,
-    limits: Limits,
+    limits: Limits = .{},
 };
 
 pub const SupportedLimits = extern struct {
     next_in_chain: ?*ChainedStructOut = null,
-    limits: Limits,
+    limits: Limits = .{},
 };
 
 pub const QueueDescriptor = extern struct {
@@ -1064,8 +1064,8 @@ pub const RenderPassColorAttachment = extern struct {
     next_in_chain: ?*const ChainedStruct = null,
     view: ?TextureView,
     resolve_target: ?TextureView = null,
-    load_op: LoadOp,
-    store_op: StoreOp,
+    load_op: LoadOp = .clear,
+    store_op: StoreOp = .store,
     clear_value: Color = .{ .r = 0.0, .g = 0.0, .b = 0.0, .a = 0.0 },
 };
 
@@ -1152,11 +1152,11 @@ pub const TextureViewDescriptor = extern struct {
     next_in_chain: ?*const ChainedStruct = null,
     label: ?[*:0]const u8 = null,
     format: TextureFormat = .undef,
-    dimension: TextureViewDimension = .undef,
+    dimension: TextureViewDimension = .tvdim_2d,
     base_mip_level: u32 = 0,
-    mip_level_count: u32 = 0xffff_ffff,
+    mip_level_count: u32 = 1,
     base_array_layer: u32 = 0,
-    array_layer_count: u32 = 0xffff_ffff,
+    array_layer_count: u32 = 1,
     aspect: TextureAspect = .all,
 };
 
