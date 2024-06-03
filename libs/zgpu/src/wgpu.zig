@@ -842,7 +842,7 @@ pub const PrimitiveState = extern struct {
     topology: PrimitiveTopology = .triangle_list,
     strip_index_format: IndexFormat = .undef,
     front_face: FrontFace = .ccw,
-    cull_mode: CullMode = .none,
+    cull_mode: CullMode = .back,
 };
 
 pub const StencilFaceState = extern struct {
