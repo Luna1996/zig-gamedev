@@ -3,11 +3,13 @@ const OpenVR = @import("zopenvr");
 
 const zmath = @import("zmath");
 const zglfw = @import("zglfw");
-const zwin32 = @import("zwin32");
-const w32 = zwin32.w32;
-const d3d12 = zwin32.d3d12;
-const d3d = zwin32.d3d;
-const dxgi = zwin32.dxgi;
+
+const zwindows = @import("zwindows");
+const windows = zwindows.windows;
+const d3d12 = zwindows.d3d12;
+const d3d = zwindows.d3d;
+const dxgi = zwindows.dxgi;
+
 const zd3d12 = @import("zd3d12");
 
 // We need to export below symbols for DirectX 12 Agility SDK.
@@ -324,7 +326,11 @@ pub fn main() !void {
     const window = try zglfw.Window.create(framebuffer_size[0], framebuffer_size[1], "", null);
     defer window.destroy();
 
-    var gctx = zd3d12.GraphicsContext.init(allocator, zglfw.getWin32Window(window) orelse @panic("failed to get win32 handle to window"));
+    const win32_window = zglfw.getWin32Window(window) orelse @panic("failed to get win32 handle to window");
+    var gctx = zd3d12.GraphicsContext.init(.{
+        .allocator = allocator,
+        .window = win32_window,
+    });
     defer gctx.deinit(allocator);
 
     const msaa_sample_count = 4;
@@ -447,11 +453,11 @@ pub fn main() !void {
         pso_desc.PS = d3d12.SHADER_BYTECODE.init(try std.fs.cwd().readFileAlloc(arena_allocator, content_dir ++ "/shaders/scene.ps.cso", 256 * 1024));
         pso_desc.RasterizerState = rasterizer_state: {
             var rasterizer_state = d3d12.RASTERIZER_DESC.initDefault();
-            rasterizer_state.FrontCounterClockwise = w32.TRUE;
-            rasterizer_state.MultisampleEnable = w32.TRUE;
+            rasterizer_state.FrontCounterClockwise = windows.TRUE;
+            rasterizer_state.MultisampleEnable = windows.TRUE;
             break :rasterizer_state rasterizer_state;
         };
-        pso_desc.SampleMask = w32.UINT_MAX;
+        pso_desc.SampleMask = windows.UINT_MAX;
         pso_desc.PrimitiveTopologyType = .TRIANGLE;
         pso_desc.NumRenderTargets = 1;
         pso_desc.RTVFormats = .{
@@ -573,16 +579,16 @@ pub fn main() !void {
         pso_desc.PS = d3d12.SHADER_BYTECODE.init(try std.fs.cwd().readFileAlloc(arena_allocator, content_dir ++ "/shaders/companion.ps.cso", 256 * 1024));
         pso_desc.RasterizerState = rasterizer_state: {
             var rasterizer_state = d3d12.RASTERIZER_DESC.initDefault();
-            rasterizer_state.FrontCounterClockwise = w32.TRUE;
+            rasterizer_state.FrontCounterClockwise = windows.TRUE;
             break :rasterizer_state rasterizer_state;
         };
         pso_desc.DepthStencilState = depth_stencil_state: {
             var depth_stencil_state = d3d12.DEPTH_STENCIL_DESC.initDefault();
-            depth_stencil_state.DepthEnable = w32.FALSE;
-            depth_stencil_state.StencilEnable = w32.FALSE;
+            depth_stencil_state.DepthEnable = windows.FALSE;
+            depth_stencil_state.StencilEnable = windows.FALSE;
             break :depth_stencil_state depth_stencil_state;
         };
-        pso_desc.SampleMask = w32.UINT_MAX;
+        pso_desc.SampleMask = windows.UINT_MAX;
         pso_desc.PrimitiveTopologyType = .TRIANGLE;
         pso_desc.NumRenderTargets = 1;
         pso_desc.RTVFormats = .{
@@ -676,11 +682,11 @@ pub fn main() !void {
         pso_desc.PS = d3d12.SHADER_BYTECODE.init(try std.fs.cwd().readFileAlloc(arena_allocator, content_dir ++ "/shaders/axes.ps.cso", 256 * 1024));
         pso_desc.RasterizerState = rasterizer_state: {
             var rasterizer_state = d3d12.RASTERIZER_DESC.initDefault();
-            rasterizer_state.FrontCounterClockwise = w32.TRUE;
-            rasterizer_state.MultisampleEnable = w32.TRUE;
+            rasterizer_state.FrontCounterClockwise = windows.TRUE;
+            rasterizer_state.MultisampleEnable = windows.TRUE;
             break :rasterizer_state rasterizer_state;
         };
-        pso_desc.SampleMask = w32.UINT_MAX;
+        pso_desc.SampleMask = windows.UINT_MAX;
         pso_desc.PrimitiveTopologyType = .LINE;
         pso_desc.NumRenderTargets = 1;
         pso_desc.RTVFormats = .{
@@ -764,11 +770,11 @@ pub fn main() !void {
         pso_desc.PS = d3d12.SHADER_BYTECODE.init(try std.fs.cwd().readFileAlloc(arena_allocator, content_dir ++ "/shaders/render_model.ps.cso", 256 * 1024));
         pso_desc.RasterizerState = rasterizer_state: {
             var rasterizer_state = d3d12.RASTERIZER_DESC.initDefault();
-            rasterizer_state.FrontCounterClockwise = w32.TRUE;
-            rasterizer_state.MultisampleEnable = w32.TRUE;
+            rasterizer_state.FrontCounterClockwise = windows.TRUE;
+            rasterizer_state.MultisampleEnable = windows.TRUE;
             break :rasterizer_state rasterizer_state;
         };
-        pso_desc.SampleMask = w32.UINT_MAX;
+        pso_desc.SampleMask = windows.UINT_MAX;
         pso_desc.PrimitiveTopologyType = .TRIANGLE;
         pso_desc.NumRenderTargets = 1;
         pso_desc.RTVFormats = .{
@@ -842,9 +848,8 @@ pub fn main() !void {
     main: while (!window.shouldClose() and window.getKey(.escape) != .press) {
         {
             // spin loop for frame limiter
-            const ns_in_s = 1_000_000_000;
             const frame_rate_target: u64 = 100;
-            const target_ns = @divTrunc(ns_in_s, frame_rate_target);
+            const target_ns = @divTrunc(std.time.ns_per_s, frame_rate_target);
             while (frame_timer.read() < target_ns) {
                 std.atomic.spinLoopHint();
             }

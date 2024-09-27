@@ -1,11 +1,12 @@
-# zpix v0.10.0 - performance markers for PIX
+# zpix
+
+Performance markers for [Microsoft's PIX profiler](https://devblogs.microsoft.com/pix/documentation/)
 
 ## Getting started
 
-Copy `zpix` and `zwin32` to a subdirectory of your project and add the following to your `build.zig.zon` .dependencies:
+Copy `zpix` to a subdirectory of your project and add the following to your `build.zig.zon` .dependencies:
 ```zig
     .zpix = .{ .path = "libs/zpix" },
-    .zwin32 = .{ .path = "libs/zwin32" },
 ```
 
 Then in your `build.zig` add:
@@ -16,35 +17,33 @@ pub fn build(b: *std.Build) void {
 
     const zpix = b.dependency("zpix", .{
         .enable = true,
+        .path = @as([]const u8, ...folder containing WinPixGpuCapturer.dll, typically directory under C:\Program Files\\Microsoft PIX),
     });
     exe.root_module.addImport("zpix", zpix.module("root"));
 }
 ```
 
-Now in your code you may import and use `zpix`:
+Load GPU capture library before making any D3D12 calls:
 
 ```zig
-const std = @import("std");
-const L = std.unicode.utf8ToUtf16LeStringLiteral;
 const zpix = @import("zpix");
 
 pub fn main() !void {
+    const pix_library = try zpix.loadGpuCapturerLibrary();
+    defer pix_library.deinit();
     ...
-    _ = zpix.loadGpuCapturerLibrary();
-    _ = zpix.setTargetWindow(window);
-    _ = zpix.beginCapture(
-        .{ .GPU = true },
-        &zpix.CaptureParameters{ .gpu_capture_params = .{ .FileName = L("capture.wpix") } },
-    );
-    ...
-    _ = zpix.endCapture();
-    ...
-    // Z Pre Pass.
-    {
-        ...
-        zpix.beginEvent(gctx.cmdlist, "Z Pre Pass");
-        defer zpix.endEvent(gctx.cmdlist);
-        ...
-    }
 }
 ```
+
+Then using the PIX UI:
+1. Under Select Target Process --> Attach
+2. Select process
+3. Select Attach
+4. Under GPU Capture, click on camera icon
+
+## Advanced usage
+For [programmic capture](https://devblogs.microsoft.com/pix/programmatic-capture/) use `beginCapture`/`endCapture`.
+
+If process has multiple windows, target one for GPU capture using `setTargetWindow`.
+
+[Full PIX documentation](https://devblogs.microsoft.com/pix/documentation/)

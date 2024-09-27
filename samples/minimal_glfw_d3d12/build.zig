@@ -1,8 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
-const Options = @import("../../build.zig").Options;
-
 const demo_name = "minimal_glfw_d3d12";
 const content_dir = demo_name ++ "_content/";
 
@@ -11,7 +9,7 @@ pub fn pathResolve(b: *std.Build, paths: []const []const u8) []u8 {
     return std.fs.path.resolve(b.allocator, paths) catch @panic("OOM");
 }
 
-pub fn build(b: *std.Build, options: Options) *std.Build.Step.Compile {
+pub fn build(b: *std.Build, options: anytype) *std.Build.Step.Compile {
     const cwd_path = b.pathJoin(&.{ "samples", demo_name });
     const src_path = b.pathJoin(&.{ cwd_path, "src" });
     const exe = b.addExecutable(.{
@@ -21,26 +19,21 @@ pub fn build(b: *std.Build, options: Options) *std.Build.Step.Compile {
         .optimize = options.optimize,
     });
 
-    @import("system_sdk").addLibraryPathsTo(exe);
-
     const zglfw = b.dependency("zglfw", .{
         .target = options.target,
     });
     exe.root_module.addImport("zglfw", zglfw.module("root"));
     exe.linkLibrary(zglfw.artifact("glfw"));
 
-    const zwin32 = b.dependency("zwin32", .{
-        .target = options.target,
+    const zwindows = b.dependency("zwindows", .{
+        .zxaudio2_debug_layer = options.zxaudio2_debug_layer,
+        .zd3d12_debug_layer = options.zd3d12_debug_layer,
+        .zd3d12_gbv = options.zd3d12_gbv,
     });
-    const zwin32_module = zwin32.module("root");
-    exe.root_module.addImport("zwin32", zwin32_module);
+    const zwindows_module = zwindows.module("zwindows");
+    const zd3d12_module = zwindows.module("zd3d12");
 
-    const zd3d12 = b.dependency("zd3d12", .{
-        .target = options.target,
-        .debug_layer = options.zd3d12_enable_debug_layer,
-        .gbv = options.zd3d12_enable_gbv,
-    });
-    const zd3d12_module = zd3d12.module("root");
+    exe.root_module.addImport("zwindows", zwindows_module);
     exe.root_module.addImport("zd3d12", zd3d12_module);
 
     const content_path = b.pathJoin(&.{ cwd_path, content_dir });
@@ -51,7 +44,7 @@ pub fn build(b: *std.Build, options: Options) *std.Build.Step.Compile {
     });
 
     if (builtin.os.tag == .windows or builtin.os.tag == .linux) {
-        const compile_shaders = @import("zwin32").addCompileShaders(b, demo_name, .{ .shader_ver = "6_6" });
+        const compile_shaders = @import("zwindows").addCompileShaders(b, demo_name, .{ .shader_ver = "6_6" });
         const root_path = pathResolve(b, &.{ @src().file, "..", "..", ".." });
 
         const hlsl_path = b.pathJoin(&.{ root_path, src_path, demo_name ++ ".hlsl" });
@@ -67,7 +60,7 @@ pub fn build(b: *std.Build, options: Options) *std.Build.Step.Compile {
     // is required by DirectX 12 Agility SDK.
     exe.rdynamic = true;
 
-    @import("zwin32").install_d3d12(&exe.step, .bin);
+    @import("zwindows").install_d3d12(&exe.step, .bin);
 
     const exe_options = b.addOptions();
     exe.root_module.addOptions("build_options", exe_options);

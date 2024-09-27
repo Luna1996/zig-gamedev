@@ -14,13 +14,13 @@ const window_title = "zig-gamedev: monolith sample (wgpu)";
 
 const floor_material = zm.f32x4(-0.7, -0.7, -0.7, 0.8);
 const monolith_scale = zm.scaling(10, 50, 5);
-const monolith_rotate = zm.mul(zm.rotationZ(0.24), zm.rotationY(0.3));
-const monolith_center = zm.f32x4(-15, 0, 30, 1);
+const monolith_default_rotate = zm.mul(zm.rotationZ(0.24), zm.rotationY(0.3));
+const monolith_default_center = zm.f32x4(-15, 0, 30, 1);
 const monolith_radius = zm.mul(monolith_scale, zm.f32x4(0.5, 0.5, 0.5, 0));
 const monolith_ray_radius = zm.mul(monolith_scale, zm.f32x4(0.4999, 0.4999, 0.4999, 0)); // .4999 is anti-artifact bias
-const monolith_translate = zm.transpose(zm.translationV(monolith_center));
-const monolith_transform = zm.mul(monolith_translate, zm.mul(monolith_rotate, monolith_scale));
-const monolith_rotate_t = zm.transpose(monolith_rotate);
+const monolith_default_translate = zm.transpose(zm.translationV(monolith_default_center));
+const monolith_default_transform = zm.mul(monolith_default_translate, zm.mul(monolith_default_rotate, monolith_scale));
+const monolith_default_rotate_t = zm.transpose(monolith_default_rotate);
 
 const FrameUniforms = extern struct {
     world_to_clip: zm.Mat align(16),
@@ -390,7 +390,7 @@ const DebugRenderer = struct {
         for (self.body_draw_list.items) |instance| {
             const mem = gctx.uniformsAllocate(DrawUniforms, 1);
             mem.slice[0] = .{
-                .object_to_world = zm.transpose(zm.loadMat(&instance.mat)),
+                .object_to_world = zm.loadMat(&instance.mat),
                 .basecolor_roughness = .{ instance.color[0], instance.color[1], instance.color[2], 0.5 },
             };
             pass.setBindGroup(1, uniform_bg, &.{mem.offset});
@@ -436,9 +436,55 @@ const DebugRenderer = struct {
             zgui.dummy(.{ .w = -1.0, .h = 5.0 });
             _ = zgui.checkbox("Physics Debug Renderer - Draw Bodies", .{ .v = &self.demo.physics_debug_enabled });
             _ = zgui.checkbox("Camera - Detach From Physics", .{ .v = &self.demo.camera.out_of_body });
+            _ = zgui.checkbox("ImGuizmo - Move Monolith Around", .{ .v = &self.demo.gizmo_enabled });
+            if (self.demo.gizmo_enabled) {
+                zgui.sameLine(.{});
+                _ = zgui.checkbox("World Space", .{ .v = &self.demo.gizmo_world_space });
+            }
             zgui.dummy(.{ .w = -1.0, .h = 5.0 });
         }
         zgui.end();
+
+        if (!self.demo.gizmo_enabled) return;
+
+        const eye = zm.loadArr3(self.demo.camera.position);
+        const up = zm.f32x4(0.0, 1.0, 0.0, 0.0);
+        const az = zm.normalize3(zm.loadArr3(self.demo.camera.forward));
+        const view = zm.matToArr(zm.lookToLh(eye, az, up));
+
+        const near = 1.0;
+        const fov_y = 0.33 * math.pi;
+        const fb_width = self.demo.gctx.swapchain_descriptor.width;
+        const fb_height = self.demo.gctx.swapchain_descriptor.height;
+        const a: f32 = @as(f32, @floatFromInt(fb_width)) / @as(f32, @floatFromInt(fb_height));
+        const proj = zm.matToArr(zm.perspectiveFovLh(fov_y, a, near, 1000.0));
+
+        zgui.gizmo.beginFrame();
+        zgui.gizmo.setDrawList(zgui.getForegroundDrawList());
+        zgui.gizmo.allowAxisFlip(true);
+        zgui.gizmo.setOrthographic(false);
+        zgui.gizmo.setRect(0, 0, @floatFromInt(fb_width), @floatFromInt(fb_height));
+
+        const gizmo_op = zgui.gizmo.Operation{
+            .translate_x = true,
+            .translate_y = true,
+            .translate_z = true,
+            .rotate_x = true,
+            .rotate_y = true,
+            .rotate_z = true,
+        };
+        var gizmo_mode: u32 = @intFromEnum(zgui.gizmo.Mode.local);
+        if (self.demo.gizmo_world_space) gizmo_mode = @intFromEnum(zgui.gizmo.Mode.world);
+
+        var matrix = zm.matToArr(zm.transpose(self.demo.monolith.transform));
+        const changed = zgui.gizmo.manipulate(&view, &proj, gizmo_op, @enumFromInt(gizmo_mode), &matrix, .{});
+        if (changed) {
+            self.demo.monolith.transform = zm.transpose(zm.matFromArr(matrix));
+            self.demo.monolith.recalculateFromTransform();
+            const body_interface = self.demo.physics_system.getBodyInterfaceMut();
+            body_interface.setPosition(self.demo.monolith.body, zm.vecToArr3(self.demo.monolith.center), .activate);
+            body_interface.setRotation(self.demo.monolith.body, zm.quatFromMat(self.demo.monolith.rotate_t), .activate);
+        }
     }
 
     pub fn shouldBodyDraw(body: *const zphy.Body) callconv(.C) bool {
@@ -495,8 +541,8 @@ const DebugRenderer = struct {
 
     fn drawGeometry(
         self: *DebugRenderer,
-        model_matrix: *const [16]zphy.Real,
-        _: *const zphy.DebugRenderer.AABox,
+        mat: *const zphy.RMatrix,
+        _: *const zphy.AABox,
         _: f32,
         color: zphy.DebugRenderer.Color,
         geometry: *const zphy.DebugRenderer.Geometry,
@@ -506,9 +552,15 @@ const DebugRenderer = struct {
     ) callconv(.C) void {
         const batch = geometry.LODs[0].batch;
         const prim = @as(*const Primitive, @alignCast(@ptrCast(zphy.DebugRenderer.getPrimitiveFromBatch(batch))));
+        const lowp_model_matrix: [16]f32 = .{
+            mat.column_0[0], mat.column_1[0], mat.column_2[0], lowP(mat.column_3[0]),
+            mat.column_0[1], mat.column_1[1], mat.column_2[1], lowP(mat.column_3[1]),
+            mat.column_0[2], mat.column_1[2], mat.column_2[2], lowP(mat.column_3[2]),
+            0,               0,               0,               1,
+        };
         self.body_draw_list.append(.{
             .prim = prim,
-            .mat = model_matrix.*,
+            .mat = lowp_model_matrix,
             .color = .{
                 @as(f32, @floatFromInt(color.comp.r)) / 255.0,
                 @as(f32, @floatFromInt(color.comp.g)) / 255.0,
@@ -525,6 +577,10 @@ const DebugRenderer = struct {
         _: f32,
     ) callconv(.C) void {}
 };
+
+inline fn lowP(r: zphy.Real) f32 {
+    return @as(f32, @floatCast(r));
+}
 
 const DemoState = struct {
     window: *zglfw.Window,
@@ -547,9 +603,11 @@ const DemoState = struct {
     contact_listener: *ContactListener,
     physics_system: *zphy.PhysicsSystem,
 
-    physics_objects: [9]zphy.BodyId = .{0} ** 9,
+    wisp_bodies: [9]zphy.BodyId = .{0} ** 9,
     physics_debug_renderer: DebugRenderer,
     physics_debug_enabled: bool = false,
+    gizmo_enabled: bool = false,
+    gizmo_world_space: bool = false,
 
     camera: struct {
         position: [3]f32 = .{ 0.0, 12.0, -64.0 },
@@ -565,6 +623,27 @@ const DemoState = struct {
     mouse: struct {
         cursor_pos: [2]f64 = .{ 0, 0 },
         captured: bool = false,
+    } = .{},
+    monolith: struct {
+        body: zphy.BodyId = 0,
+        center: zm.Vec = monolith_default_center,
+        translate: zm.Mat = monolith_default_translate,
+        transform: zm.Mat = monolith_default_transform,
+        rotate_t: zm.Mat = monolith_default_rotate_t,
+
+        pub fn recalculateFromTransform(self: *@This()) void {
+            const gizmo_xform = zm.matToArr(zm.transpose(self.transform));
+            var gizmo_center = zgui.gizmo.Vector{ 0, 0, 0 };
+            var gizmo_rot = zgui.gizmo.Vector{ 0, 0, 0 };
+            var gizmo_scale = zgui.gizmo.Vector{ 0, 0, 0 };
+            zgui.gizmo.decomposeMatrixToComponents(&gizmo_xform, &gizmo_center, &gizmo_rot, &gizmo_scale);
+            self.center = zm.f32x4(gizmo_center[0], gizmo_center[1], gizmo_center[2], 1);
+            self.translate = zm.transpose(zm.translationV(self.center));
+
+            var arr_rot = zm.matToArr(zm.identity());
+            zgui.gizmo.recomposeMatrixFromComponents(&.{ 0, 0, 0 }, &gizmo_rot, &.{ 1, 1, 1 }, &arr_rot);
+            self.rotate_t = zm.matFromArr(arr_rot);
+        }
     } = .{},
 };
 
@@ -772,13 +851,17 @@ fn create(allocator: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
     {
         const body_interface = physics_system.getBodyInterfaceMut();
 
-        const monolith_shape_settings = try zphy.BoxShapeSettings.create(.{ monolith_radius[0], monolith_radius[1], monolith_radius[2] });
+        const monolith_shape_settings = try zphy.BoxShapeSettings.create(.{
+            monolith_radius[0],
+            monolith_radius[1],
+            monolith_radius[2],
+        });
         defer monolith_shape_settings.release();
         const monolith_shape = try monolith_shape_settings.createShape();
         defer monolith_shape.release();
-        _ = try body_interface.createAndAddBody(.{
-            .position = monolith_center,
-            .rotation = zm.quatFromMat(monolith_rotate_t),
+        demo.monolith.body = try body_interface.createAndAddBody(.{
+            .position = demo.monolith.center,
+            .rotation = zm.quatFromMat(demo.monolith.rotate_t),
             .shape = monolith_shape,
             .motion_type = .static,
             .object_layer = object_layers.non_moving,
@@ -837,7 +920,7 @@ fn create(allocator: std.mem.Allocator, window: *zglfw.Window) !*DemoState {
         while (i < 9) : (i += 1) {
             const fi = @as(f32, @floatFromInt(i));
             const angle: f32 = std.math.degreesToRadians(fi * 40.0);
-            demo.physics_objects[i] = try body_interface.createAndAddBody(.{
+            demo.wisp_bodies[i] = try body_interface.createAndAddBody(.{
                 .position = .{ 24.0 * std.math.cos(angle), 8.0 + std.math.sin(angle), 16.0 * std.math.sin(angle), 1 },
                 .shape = sphere_shape,
                 .motion_type = .dynamic,
@@ -1139,10 +1222,19 @@ fn draw(demo: *DemoState) void {
             mem.slice[0] = .{
                 .world_to_clip = zm.mul(cam_view_to_clip, cam_world_to_view),
                 .floor_material = floor_material,
-                .monolith_rotation = .{ monolith_rotate_t[0], monolith_rotate_t[1], monolith_rotate_t[2] },
-                .monolith_center = monolith_center,
+                .monolith_rotation = .{
+                    demo.monolith.rotate_t[0],
+                    demo.monolith.rotate_t[1],
+                    demo.monolith.rotate_t[2],
+                },
+                .monolith_center = demo.monolith.center,
                 .monolith_ray_radius = monolith_ray_radius,
-                .monolith_inv_radius = .{ 1.0 / monolith_ray_radius[0], 1.0 / monolith_ray_radius[1], 1.0 / monolith_ray_radius[2], 0 },
+                .monolith_inv_radius = .{
+                    1.0 / monolith_ray_radius[0],
+                    1.0 / monolith_ray_radius[1],
+                    1.0 / monolith_ray_radius[2],
+                    0,
+                },
                 .camera_position = demo.camera.position,
             };
             const bodies = demo.physics_system.getBodiesUnsafe();
@@ -1189,7 +1281,7 @@ fn draw(demo: *DemoState) void {
             { // Draw monolith
                 const mem = gctx.uniformsAllocate(DrawUniforms, 1);
                 mem.slice[0] = .{
-                    .object_to_world = monolith_transform,
+                    .object_to_world = demo.monolith.transform,
                     .basecolor_roughness = .{ 0.24, 0.24, 0.24, -0.04 },
                 };
                 pass.setBindGroup(1, uniform_bg, &.{mem.offset});

@@ -1,7 +1,12 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 
 const options = @import("zglfw_options");
+
+comptime {
+    _ = std.testing.refAllDeclsRecursive(@This());
+}
 
 //--------------------------------------------------------------------------------------------------
 //
@@ -120,6 +125,14 @@ pub fn maybeErrorString(str: *?[:0]const u8) Error!void {
 }
 extern fn glfwGetError(description: ?*?[*:0]const u8) i32;
 
+/// `pub fn setErrorCallback(callback: ?ErrorFn) ?ErrorFn`
+pub const setErrorCallback = glfwSetErrorCallback;
+extern fn glfwSetErrorCallback(callback: ?ErrorFn) ?ErrorFn;
+pub const ErrorFn = *const fn (
+    error_code: i32,
+    description: *?[:0]const u8,
+) callconv(.C) void;
+
 pub const InputMode = enum(i32) {
     cursor = 0x00033001,
     sticky_keys = 0x00033002,
@@ -144,7 +157,7 @@ extern fn glfwSwapInterval(interval: i32) void;
 
 pub const GlProc = *const anyopaque;
 
-pub fn getProcAddress(procname: [:0]const u8) ?GlProc {
+pub fn getProcAddress(procname: [*:0]const u8) ?GlProc {
     return glfwGetProcAddress(procname);
 }
 extern fn glfwGetProcAddress(procname: [*:0]const u8) ?GlProc;
@@ -338,6 +351,18 @@ pub const Cursor = opaque {
     pub const destroy = glfwDestroyCursor;
     extern fn glfwDestroyCursor(cursor: *Cursor) void;
 
+    pub fn create(width: i32, height: i32, pixels: []const u8, xhot: i32, yhot: i32) Error!*Cursor {
+        assert(pixels.len == 4 * width * height);
+        if (glfwCreateCursor(&.{
+            .width = width,
+            .height = height,
+            .pixels = @constCast(pixels.ptr),
+        }, xhot, yhot)) |ptr| return ptr;
+        try maybeError();
+        unreachable;
+    }
+    extern fn glfwCreateCursor(image: *const Image, xhot: c_int, yhot: c_int) ?*Cursor;
+
     pub fn createStandard(shape: Shape) Error!*Cursor {
         if (glfwCreateStandardCursor(shape)) |ptr| return ptr;
         try maybeError();
@@ -453,19 +478,15 @@ pub const Gamepad = struct {
     };
 
     pub const State = extern struct {
-        buttons: [15]Joystick.ButtonAction,
-        axes: [6]f32,
-
-        test {
+        comptime {
             const c = @cImport(@cInclude("GLFW/glfw3.h"));
-            try std.testing.expectEqual(@sizeOf(c.GLFWgamepadstate), @sizeOf(State));
-            inline for (comptime std.meta.fieldNames(State)) |field_name| {
-                try std.testing.expectEqual(
-                    @offsetOf(c.GLFWgamepadstate, field_name),
-                    @offsetOf(State, field_name),
-                );
+            assert(@sizeOf(c.GLFWgamepadstate) == @sizeOf(State));
+            for (std.meta.fieldNames(State)) |field_name| {
+                assert(@offsetOf(c.GLFWgamepadstate, field_name) == @offsetOf(State, field_name));
             }
         }
+        buttons: [15]Joystick.ButtonAction,
+        axes: [6]f32,
     };
 
     pub fn getName(self: Gamepad) [:0]const u8 {
@@ -542,27 +563,37 @@ pub const Monitor = opaque {
 };
 
 pub const VideoMode = extern struct {
+    comptime {
+        const c = @cImport(@cInclude("GLFW/glfw3.h"));
+        assert(@sizeOf(c.GLFWvidmode) == @sizeOf(VideoMode));
+        for (std.meta.fieldNames(VideoMode), 0..) |field_name, i| {
+            assert(@offsetOf(c.GLFWvidmode, std.meta.fieldNames(c.GLFWvidmode)[i]) ==
+                @offsetOf(VideoMode, field_name));
+        }
+    }
     width: c_int,
     height: c_int,
     red_bits: c_int,
     green_bits: c_int,
     blue_bits: c_int,
     refresh_rate: c_int,
-
-    test {
+};
+//--------------------------------------------------------------------------------------------------
+//
+// Image
+//
+//--------------------------------------------------------------------------------------------------
+pub const Image = extern struct {
+    comptime {
         const c = @cImport(@cInclude("GLFW/glfw3.h"));
-
-        try std.testing.expectEqual(@sizeOf(c.GLFWvidmode), @sizeOf(VideoMode));
-
-        comptime var i = 0;
-        inline for (comptime std.meta.fieldNames(VideoMode)) |field_name| {
-            try std.testing.expectEqual(
-                @offsetOf(c.GLFWvidmode, std.meta.fieldNames(c.GLFWvidmode)[i]),
-                @offsetOf(VideoMode, field_name),
-            );
-            i += 1;
+        assert(@sizeOf(c.GLFWimage) == @sizeOf(Image));
+        for (std.meta.fieldNames(Image)) |field_name| {
+            assert(@offsetOf(c.GLFWimage, field_name) == @offsetOf(Image, field_name));
         }
     }
+    width: c_int,
+    height: c_int,
+    pixels: [*]u8,
 };
 //--------------------------------------------------------------------------------------------------
 //
@@ -721,6 +752,14 @@ pub const Window = opaque {
         window: *Window,
         xpos: i32,
         ypos: i32,
+    ) callconv(.C) void;
+
+    /// `pub const setFocusCallback(window: *Window, callback: ?WindowFocusFn) ?WindowFocusFn`
+    pub const setFocusCallback = glfwSetWindowFocusCallback;
+    extern fn glfwSetWindowFocusCallback(window: *Window, callback: ?WindowFocusFn) ?WindowFocusFn;
+    pub const WindowFocusFn = *const fn (
+        window: *Window,
+        focused: i32,
     ) callconv(.C) void;
 
     /// `pub const setContentScaleCallback(window: *Window, callback: ?WindowContentScaleFn) ?WindowContentScaleFn`
@@ -1054,183 +1093,9 @@ fn _isLinuxDesktopLike() bool {
     return switch (builtin.target.os.tag) {
         .linux,
         .freebsd,
-        .kfreebsd,
         .openbsd,
         .dragonfly,
         => true,
         else => false,
     };
 }
-
-//--------------------------------------------------------------------------------------------------
-//
-// Test
-//
-//--------------------------------------------------------------------------------------------------
-test {
-    std.testing.refAllDeclsRecursive(@This());
-}
-
-const expect = std.testing.expect;
-
-fn contentScaleCallback(window: *Window, xscale: f32, yscale: f32) callconv(.C) void {
-    _ = window;
-    _ = xscale;
-    _ = yscale;
-}
-
-fn framebufferSizeCallback(window: *Window, width: i32, height: i32) callconv(.C) void {
-    _ = window;
-    _ = width;
-    _ = height;
-}
-
-fn sizeCallback(window: *Window, width: i32, height: i32) callconv(.C) void {
-    _ = window;
-    _ = width;
-    _ = height;
-}
-
-fn posCallback(window: *Window, xpos: i32, ypos: i32) callconv(.C) void {
-    _ = window;
-    _ = xpos;
-    _ = ypos;
-}
-
-fn cursorPosCallback(window: *Window, xpos: f64, ypos: f64) callconv(.C) void {
-    _ = window;
-    _ = xpos;
-    _ = ypos;
-}
-
-fn mouseButtonCallback(window: *Window, button: MouseButton, action: Action, mods: Mods) callconv(.C) void {
-    _ = window;
-    _ = button;
-    _ = action;
-    _ = mods;
-}
-
-fn scrollCallback(window: *Window, xoffset: f64, yoffset: f64) callconv(.C) void {
-    _ = window;
-    _ = xoffset;
-    _ = yoffset;
-}
-
-fn keyCallback(window: *Window, key: Key, scancode: i32, action: Action, mods: Mods) callconv(.C) void {
-    _ = window;
-    _ = key;
-    _ = scancode;
-    _ = action;
-    _ = mods;
-}
-
-fn charCallback(window: *Window, codepoint: u32) callconv(.C) void {
-    _ = window;
-    _ = codepoint;
-}
-
-test "zglfw.basic" {
-    // TODO: Make this test headless or only skip for CI
-    if (true) {
-        return error.SkipZigTest;
-    }
-
-    try init();
-    defer terminate();
-
-    if (isVulkanSupported()) {
-        _ = try getRequiredInstanceExtensions();
-    }
-
-    setTime(100);
-    try std.testing.expectApproxEqAbs(@as(f64, 100), getTime(), 0.5);
-
-    const primary_monitor = Monitor.getPrimary();
-    if (primary_monitor) |monitor| {
-        const monitors = Monitor.getAll().?;
-        try expect(monitor == monitors[0]);
-        const pos = monitor.getPos();
-        _ = pos[0];
-        _ = pos[1];
-
-        const adapter = switch (@import("builtin").target.os.tag) {
-            .windows => try getWin32Adapter(monitor),
-            .linux => try getX11Adapter(monitor),
-            else => {},
-        };
-        _ = adapter;
-    }
-
-    const window = try Window.create(200, 200, "test", null);
-    defer window.destroy();
-
-    window.setAttribute(.resizable, true);
-    try expect(window.getAttribute(.resizable) == true);
-
-    window.setAttribute(.resizable, false);
-    try expect(window.getAttribute(.resizable) == false);
-
-    _ = window.setContentScaleCallback(contentScaleCallback);
-    _ = window.setFramebufferSizeCallback(framebufferSizeCallback);
-    _ = window.setSizeCallback(sizeCallback);
-    _ = window.setPosCallback(posCallback);
-    _ = window.setCursorPosCallback(cursorPosCallback);
-    _ = window.setMouseButtonCallback(mouseButtonCallback);
-    _ = window.setKeyCallback(keyCallback);
-    _ = window.setCharCallback(charCallback);
-    _ = window.setScrollCallback(scrollCallback);
-    _ = window.setKeyCallback(null);
-
-    window.setClipboardString("keep going");
-    try expect(std.mem.eql(u8, window.getClipboardString().?, "keep going"));
-
-    var timer = try std.time.Timer.start();
-    window.setSize(300, 200);
-    while (timer.read() < std.time.ns_per_s) {
-        waitEventsTimeout(0.0001);
-        const size = window.getSize();
-        if (size[0] == 300 and size[1] == 200) break;
-    } else {
-        try std.testing.expectEqualSlices(i32, &.{ 300, 200 }, &window.getSize());
-    }
-
-    timer.reset();
-    window.setPos(100, 100);
-    while (timer.read() < std.time.ns_per_s) {
-        waitEventsTimeout(0.0001);
-        const pos = window.getPos();
-        if (pos[0] == 100 and pos[1] == 100) break;
-    } else {
-        try std.testing.expectEqualSlices(i32, &.{ 100, 100 }, &window.getPos());
-    }
-
-    window.setTitle("new title");
-
-    const cursor = try Cursor.createStandard(.hand);
-    defer cursor.destroy();
-    window.setCursor(cursor);
-    window.setCursor(null);
-
-    if (window.getKey(.a) == .press) {}
-    if (window.getMouseButton(.right) == .press) {}
-    const cursor_pos = window.getCursorPos();
-    _ = cursor_pos[0];
-    _ = cursor_pos[1];
-
-    const window_native = try switch (builtin.target.os.tag) {
-        .windows => getWin32Window(window),
-        .linux => getX11Window(window),
-        .macos => getCocoaWindow(window),
-        else => unreachable,
-    };
-    _ = window_native;
-
-    window.setSizeLimits(10, 10, 300, 300);
-    const content_scale = window.getContentScale();
-    _ = content_scale[0];
-    _ = content_scale[1];
-    pollEvents();
-    window.show();
-    try maybeError();
-}
-//--------------------------------------------------------------------------------------------------

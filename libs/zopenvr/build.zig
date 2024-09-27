@@ -1,44 +1,29 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const optimize = b.standardOptimizeOption(.{});
-    const target = b.standardTargetOptions(.{});
-
-    const zwin32 = b.dependency("zwin32", .{
-        .target = target,
+    const zwindows = b.dependency("zwindows", .{
+        .zxaudio2_debug_layer = b.option(
+            bool,
+            "zxaudio2_debug_layer",
+            "Enable XAudio2 debug layer",
+        ) orelse false,
+        .zd3d12_debug_layer = b.option(
+            bool,
+            "zd3d12_debug_layer",
+            "Enable DirectX 12 debug layer",
+        ) orelse false,
+        .zd3d12_gbv = b.option(
+            bool,
+            "zd3d12_gbv",
+            "Enable DirectX 12 GPU-Based Validation (GBV)",
+        ) orelse false,
     });
     _ = b.addModule("root", .{
         .root_source_file = b.path("src/openvr.zig"),
         .imports = &.{
-            .{ .name = "zwin32", .module = zwin32.module("root") },
+            .{ .name = "zwindows", .module = zwindows.module("zwindows") },
         },
     });
-
-    {
-        const unit_tests = b.step("test", "Run zopenvr tests");
-        {
-            const tests = b.addTest(.{
-                .name = "openvr-tests",
-                .root_source_file = b.path("src/openvr.zig"),
-                .target = target,
-                .optimize = optimize,
-            });
-            addLibraryPathsTo(tests);
-            addRPathsTo(tests);
-            linkOpenVR(tests);
-            b.installArtifact(tests);
-
-            const tests_exe = b.addRunArtifact(tests);
-            if (target.result.os.tag == .windows) {
-                tests_exe.setCwd(.{
-                    .cwd_relative = b.getInstallPath(.bin, ""),
-                });
-            }
-            unit_tests.dependOn(&tests_exe.step);
-        }
-
-        installOpenVR(unit_tests, target.result, .bin);
-    }
 }
 
 // in future zig version e342433

@@ -25,10 +25,25 @@ pub fn build(b: *std.Build) void {
             "with_implot",
             "Build with bundled implot source",
         ) orelse true,
+        .with_gizmo = b.option(
+            bool,
+            "with_gizmo",
+            "Build with bundled ImGuizmo tool",
+        ) orelse true,
+        .with_node_editor = b.option(
+            bool,
+            "with_node_editor",
+            "Build with bundled ImGui node editor",
+        ) orelse true,
         .with_te = b.option(
             bool,
             "with_te",
             "Build with bundled test engine support",
+        ) orelse false,
+        .with_freetype = b.option(
+            bool,
+            "with_freetype",
+            "Build with system FreeType engine support",
         ) orelse false,
         .use_wchar32 = b.option(
             bool,
@@ -51,7 +66,7 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const cflags = &.{"-fno-sanitize=undefined"};
+    const cflags = &.{ "-fno-sanitize=undefined", "-Wno-elaborated-enum-base" };
 
     const imgui = if (options.shared) blk: {
         const lib = b.addSharedLibrary(.{
@@ -102,26 +117,72 @@ pub fn build(b: *std.Build) void {
         .flags = cflags,
     });
 
-    if (options.with_implot) {
-        imgui.defineCMacro("ZGUI_IMPLOT", "1");
-        imgui.addCSourceFiles(.{
-            .files = &.{
-                "libs/imgui/implot_demo.cpp",
-                "libs/imgui/implot.cpp",
-                "libs/imgui/implot_items.cpp",
-            },
-            .flags = cflags,
-        });
-    } else {
-        imgui.defineCMacro("ZGUI_IMPLOT", "0");
+    if (options.with_freetype) {
+        if (b.lazyDependency("freetype", .{})) |freetype| {
+            imgui.addCSourceFile(.{
+                .file = b.path("libs/imgui/misc/freetype/imgui_freetype.cpp"),
+                .flags = cflags,
+            });
+            imgui.defineCMacro("IMGUI_ENABLE_FREETYPE", "1");
+            imgui.linkLibrary(freetype.artifact("freetype"));
+        }
     }
 
     if (options.use_wchar32) {
         imgui.defineCMacro("IMGUI_USE_WCHAR32", "1");
     }
 
+    if (options.with_implot) {
+        imgui.addIncludePath(b.path("libs/implot"));
+
+        imgui.addCSourceFile(.{
+            .file = b.path("src/zplot.cpp"),
+            .flags = cflags,
+        });
+
+        imgui.addCSourceFiles(.{
+            .files = &.{
+                "libs/implot/implot_demo.cpp",
+                "libs/implot/implot.cpp",
+                "libs/implot/implot_items.cpp",
+            },
+            .flags = cflags,
+        });
+    }
+
+    if (options.with_gizmo) {
+        imgui.addIncludePath(b.path("libs/imguizmo/"));
+
+        imgui.addCSourceFile(.{
+            .file = b.path("src/zgizmo.cpp"),
+            .flags = cflags,
+        });
+
+        imgui.addCSourceFiles(.{
+            .files = &.{
+                "libs/imguizmo/ImGuizmo.cpp",
+            },
+            .flags = cflags,
+        });
+    }
+
+    if (options.with_node_editor) {
+        imgui.addCSourceFile(.{
+            .file = b.path("src/znode_editor.cpp"),
+            .flags = cflags,
+        });
+
+        imgui.addCSourceFile(.{ .file = b.path("libs/node_editor/crude_json.cpp"), .flags = cflags });
+        imgui.addCSourceFile(.{ .file = b.path("libs/node_editor/imgui_canvas.cpp"), .flags = cflags });
+        imgui.addCSourceFile(.{ .file = b.path("libs/node_editor/imgui_node_editor_api.cpp"), .flags = cflags });
+        imgui.addCSourceFile(.{ .file = b.path("libs/node_editor/imgui_node_editor.cpp"), .flags = cflags });
+    }
+
     if (options.with_te) {
-        imgui.defineCMacro("ZGUI_TE", "1");
+        imgui.addCSourceFile(.{
+            .file = b.path("src/zte.cpp"),
+            .flags = cflags,
+        });
 
         imgui.defineCMacro("IMGUI_ENABLE_TEST_ENGINE", null);
         imgui.defineCMacro("IMGUI_TEST_ENGINE_ENABLE_COROUTINE_STDTHREAD_IMPL", "1");
@@ -179,8 +240,6 @@ pub fn build(b: *std.Build) void {
             imgui.linkLibrary(winpthreads);
             imgui.addSystemIncludePath(b.path("libs/winpthreads/include"));
         }
-    } else {
-        imgui.defineCMacro("ZGUI_TE", "0");
     }
 
     switch (options.backend) {
@@ -247,6 +306,13 @@ pub fn build(b: *std.Build) void {
             });
         },
         .no_backend => {},
+    }
+
+    if (target.result.os.tag == .macos) {
+        if (b.lazyDependency("system_sdk", .{})) |system_sdk| {
+            imgui.addSystemIncludePath(system_sdk.path("macos12/usr/include"));
+            imgui.addFrameworkPath(system_sdk.path("macos12/System/Library/Frameworks"));
+        }
     }
 
     const test_step = b.step("test", "Run zgui tests");

@@ -25,7 +25,7 @@ pub fn build(b: *std.Build) void {
     const options_module = options_step.createModule();
 
     _ = b.addModule("root", .{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/root.zig"),
         .imports = &.{
             .{ .name = "zmesh_options", .module = options_module },
         },
@@ -39,6 +39,7 @@ pub fn build(b: *std.Build) void {
         });
 
         if (target.result.os.tag == .windows) {
+            lib.defineCMacro("PAR_SHAPES_API", "__declspec(dllexport)");
             lib.defineCMacro("CGLTF_API", "__declspec(dllexport)");
             lib.defineCMacro("MESHOPTIMIZER_API", "__declspec(dllexport)");
             lib.defineCMacro("ZMESH_API", "__declspec(dllexport)");
@@ -92,7 +93,7 @@ pub fn build(b: *std.Build) void {
 
     const tests = b.addTest(.{
         .name = "zmesh-tests",
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });

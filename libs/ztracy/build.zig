@@ -49,9 +49,6 @@ pub fn build(b: *std.Build) void {
         .flags = &.{
             "-DTRACY_ENABLE",
             if (options.enable_fibers) "-DTRACY_FIBERS" else "",
-            // MinGW doesn't have all the newfangled windows features,
-            // so we need to pretend to have an older windows version.
-            "-D_WIN32_WINNT=0x601",
             "-fno-sanitize=undefined",
         },
     });
@@ -68,8 +65,9 @@ pub fn build(b: *std.Build) void {
             tracy.linkSystemLibrary("dbghelp");
         },
         .macos => {
-            const system_sdk = b.dependency("system_sdk", .{});
-            tracy.addFrameworkPath(system_sdk.path("System/Library/Frameworks"));
+            if (b.lazyDependency("system_sdk", .{})) |system_sdk| {
+                tracy.addFrameworkPath(system_sdk.path("System/Library/Frameworks"));
+            }
         },
         else => {},
     }

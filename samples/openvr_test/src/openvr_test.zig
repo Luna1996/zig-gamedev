@@ -2,11 +2,14 @@ const std = @import("std");
 const OpenVR = @import("zopenvr");
 
 const zglfw = @import("zglfw");
-const zwin32 = @import("zwin32");
+
+const zwindows = @import("zwindows");
+const windows = zwindows.windows;
+const d3d12 = zwindows.d3d12;
+const dxgi = zwindows.dxgi;
+
 const zd3d12 = @import("zd3d12");
-const w32 = zwin32.w32;
-const d3d12 = zwin32.d3d12;
-const dxgi = zwin32.dxgi;
+
 const zgui = @import("zgui");
 
 // We need to export below symbols for DirectX 12 Agility SDK.
@@ -32,7 +35,10 @@ const Surface = struct {
         const window = try zglfw.Window.create(width, height, window_title, null);
 
         const win32_window = zglfw.getWin32Window(window) orelse return error.FailedToGetWin32Window;
-        const gctx = zd3d12.GraphicsContext.init(allocator, win32_window);
+        const gctx = zd3d12.GraphicsContext.init(.{
+            .allocator = allocator,
+            .window = win32_window,
+        });
 
         zgui.init(allocator);
         zgui.plot.init();
@@ -1258,9 +1264,8 @@ pub fn main() !void {
 
         {
             // spin loop for frame limiter
-            const ns_in_s = 1_000_000_000;
             const frame_rate_target: u64 = 60;
-            const target_ns = @divTrunc(ns_in_s, frame_rate_target);
+            const target_ns = @divTrunc(std.time.ns_per_s, frame_rate_target);
             while (frame_timer.read() < target_ns) {
                 std.atomic.spinLoopHint();
             }
@@ -1281,7 +1286,7 @@ pub fn main() !void {
             surface.gctx.cmdlist.OMSetRenderTargets(
                 1,
                 &.{back_buffer.descriptor_handle},
-                w32.TRUE,
+                windows.TRUE,
                 null,
             );
             surface.gctx.cmdlist.ClearRenderTargetView(

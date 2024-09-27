@@ -1,7 +1,6 @@
 const std = @import("std");
-const Options = @import("../../build.zig").Options;
 
-pub fn build(b: *std.Build, options: Options) void {
+pub fn build(b: *std.Build, options: anytype) void {
     const latest_experiment = 31;
     inline for (1..latest_experiment + 1) |i| {
         if (i == 6 or i == 7 or i == 30) continue;
@@ -16,14 +15,10 @@ fn install(
     target: std.Build.ResolvedTarget,
     comptime name: []const u8,
 ) void {
-    const zsdl = b.dependency("zsdl", .{
-        .target = target,
-    });
+    const zsdl = b.dependency("zsdl", .{});
     const zsdl2_module = zsdl.module("zsdl2");
 
-    const zopengl = b.dependency("zopengl", .{
-        .target = target,
-    });
+    const zopengl = b.dependency("zopengl", .{});
     const zopengl_module = zopengl.module("root");
 
     const zmath = b.dependency("zmath", .{
@@ -80,24 +75,9 @@ fn install(
     exe.linkLibrary(zstbi.artifact("zstbi"));
 
     exe.root_module.addImport("zsdl2", zsdl2_module);
-    switch (target.result.os.tag) {
-        .windows => {
-            if (target.result.cpu.arch.isX86()) {
-                exe.addLibraryPath(zsdl.path("libs/x86_64-windows-gnu/lib"));
-            }
-        },
-        .linux => {
-            if (target.result.cpu.arch.isX86()) {
-                exe.addLibraryPath(zsdl.path("libs/x86_64-linux-gnu/lib"));
-            }
-        },
-        .macos => {
-            exe.addFrameworkPath(zsdl.path("libs/macos/Frameworks"));
-        },
-        else => {},
-    }
 
     @import("zsdl").link_SDL2(exe);
+    @import("zsdl").prebuilt.addLibraryPathsTo(exe);
 
     exe.root_module.addImport("zopengl", zopengl_module);
 
@@ -106,6 +86,10 @@ fn install(
         "Build '" ++ desc_name[0..desc_size] ++ "' genart experiment",
     );
     install_step.dependOn(&b.addInstallArtifact(exe, .{}).step);
+
+    if (@import("zsdl").prebuilt.install_SDL2(b, target.result, .bin)) |install_sdl2_step| {
+        install_step.dependOn(install_sdl2_step);
+    }
 
     const run_step = b.step(
         name ++ "-run",

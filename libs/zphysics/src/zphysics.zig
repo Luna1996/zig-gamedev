@@ -664,6 +664,16 @@ pub const SubShapeIdPair = extern struct {
     }
 };
 
+pub const SubShapeIDCreator = extern struct {
+    id: SubShapeId = sub_shape_id_empty,
+    current_bit: u32 = 0,
+
+    comptime {
+        assert(@sizeOf(SubShapeIDCreator) == @sizeOf(c.JPC_SubShapeIDCreator));
+        assert(@offsetOf(SubShapeIDCreator, "current_bit") == @offsetOf(c.JPC_SubShapeIDCreator, "current_bit"));
+    }
+};
+
 pub const CollideShapeResult = extern struct {
     shape1_contact_point: [4]f32 align(16), // 4th element is ignored; world space
     shape2_contact_point: [4]f32 align(16), // 4th element is ignored; world space
@@ -880,11 +890,30 @@ pub const CharacterVirtualSettings = extern struct {
     }
 };
 
+pub const RayCast = extern struct {
+    origin: [4]f32 align(16), // 4th element is ignored
+    direction: [4]f32 align(16), // 4th element is ignored
+
+    pub fn getPointOnRay(self: RayCast, fraction: f32) [3]f32 {
+        return .{
+            self.origin[0] + self.direction[0] * fraction,
+            self.origin[1] + self.direction[1] * fraction,
+            self.origin[2] + self.direction[2] * fraction,
+        };
+    }
+
+    comptime {
+        assert(@sizeOf(RayCast) == @sizeOf(c.JPC_RayCast));
+        assert(@offsetOf(RayCast, "origin") == @offsetOf(c.JPC_RayCast, "origin"));
+        assert(@offsetOf(RayCast, "direction") == @offsetOf(c.JPC_RayCast, "direction"));
+    }
+};
+
 pub const RRayCast = extern struct {
     origin: [4]Real align(rvec_align), // 4th element is ignored
     direction: [4]f32 align(16), // 4th element is ignored
 
-    pub fn getPointOnRay(self: RRayCast, fraction: Real) [3]Real {
+    pub fn getPointOnRay(self: RRayCast, fraction: f32) [3]Real {
         return .{
             self.origin[0] + self.direction[0] * fraction,
             self.origin[1] + self.direction[1] * fraction,
@@ -928,6 +957,30 @@ pub const RayCastSettings = extern struct {
         );
         assert(@offsetOf(RayCastSettings, "treat_convex_as_solid") ==
             @offsetOf(c.JPC_RayCastSettings, "treat_convex_as_solid"));
+    }
+};
+
+pub const AABox = extern struct {
+    min: [4]f32 align(16), // 4th element is ignored
+    max: [4]f32 align(16), // 4th element is ignored
+
+    comptime {
+        assert(@sizeOf(AABox) == @sizeOf(c.JPC_AABox));
+        assert(@offsetOf(AABox, "min") == @offsetOf(c.JPC_AABox, "min"));
+        assert(@offsetOf(AABox, "max") == @offsetOf(c.JPC_AABox, "max"));
+    }
+};
+
+pub const RMatrix = extern struct {
+    column_0: [4]f32 align(16),
+    column_1: [4]f32 align(16),
+    column_2: [4]f32 align(16),
+    column_3: [4]Real align(rvec_align),
+
+    comptime {
+        assert(@sizeOf(RMatrix) == @sizeOf(c.JPC_RMatrix));
+        assert(@offsetOf(RMatrix, "column_1") == @offsetOf(c.JPC_RMatrix, "column_1"));
+        assert(@offsetOf(RMatrix, "column_3") == @offsetOf(c.JPC_RMatrix, "column_3"));
     }
 };
 
@@ -1027,7 +1080,7 @@ pub const DebugRenderer = if (!debug_renderer_enabled) extern struct {} else ext
             }
             pub inline fn drawGeometry(
                 self: *T,
-                model_matrix: *const [16]Real,
+                model_matrix: *const RMatrix,
                 world_space_bound: *const AABox,
                 lod_scale_sq: f32,
                 color: Color,
@@ -1097,7 +1150,7 @@ pub const DebugRenderer = if (!debug_renderer_enabled) extern struct {} else ext
             ) callconv(.C) *anyopaque = null,
             drawGeometry: ?*const fn (
                 self: *T,
-                model_matrix: *const [16]Real,
+                model_matrix: *const RMatrix,
                 world_space_bound: *const AABox,
                 lod_scale_sq: f32,
                 color: Color,
@@ -1132,11 +1185,6 @@ pub const DebugRenderer = if (!debug_renderer_enabled) extern struct {} else ext
         normal: [3]f32,
         uv: [2]f32,
         color: Color,
-    };
-
-    pub const AABox = extern struct {
-        min: [3]f32,
-        max: [3]f32,
     };
 
     pub const LOD = extern struct {
@@ -1224,13 +1272,24 @@ const SizeAndAlignment = packed struct(u64) {
     size: u48,
     alignment: u16,
 };
-var mem_allocator: ?std.mem.Allocator = null;
-var mem_allocations: ?std.AutoHashMap(usize, SizeAndAlignment) = null;
-var mem_mutex: std.Thread.Mutex = .{};
 const mem_alignment = 16;
+pub const GlobalState = struct {
+    mem_allocator: std.mem.Allocator,
+    mem_allocations: std.AutoHashMap(usize, SizeAndAlignment),
+    mem_mutex: std.Thread.Mutex = .{},
 
-var temp_allocator: ?*TempAllocator = null;
-var job_system: ?*JobSystem = null;
+    temp_allocator: *TempAllocator,
+    job_system: *JobSystem,
+};
+var state: ?GlobalState = null;
+
+pub const TraceFunc = *const fn (fmt: ?[*:0]const u8, ...) callconv(.C) void;
+pub const AssertFailedFunc = *const fn (
+    expression: ?[*:0]const u8,
+    message: ?[*:0]const u8,
+    file: ?[*:0]const u8,
+    line: u32,
+) callconv(.C) bool;
 
 pub fn init(allocator: std.mem.Allocator, args: struct {
     temp_allocator_size: u32 = 16 * 1024 * 1024,
@@ -1238,32 +1297,57 @@ pub fn init(allocator: std.mem.Allocator, args: struct {
     max_barriers: u32 = max_physics_barriers,
     num_threads: i32 = -1,
 }) !void {
-    std.debug.assert(mem_allocator == null and mem_allocations == null);
+    std.debug.assert(state == null);
 
-    mem_allocator = allocator;
-    mem_allocations = std.AutoHashMap(usize, SizeAndAlignment).init(allocator);
-    mem_allocations.?.ensureTotalCapacity(32) catch unreachable;
+    state = .{
+        .mem_allocator = allocator,
+        .mem_allocations = std.AutoHashMap(usize, SizeAndAlignment).init(allocator),
+        .temp_allocator = undefined,
+        .job_system = undefined,
+    };
+
+    state.?.mem_allocations.ensureTotalCapacity(32) catch unreachable;
 
     c.JPC_RegisterCustomAllocator(zphysicsAlloc, zphysicsFree, zphysicsAlignedAlloc, zphysicsFree);
 
     c.JPC_CreateFactory();
     c.JPC_RegisterTypes();
 
-    assert(temp_allocator == null and job_system == null);
-    temp_allocator = @as(*TempAllocator, @ptrCast(c.JPC_TempAllocator_Create(args.temp_allocator_size)));
-    job_system = @as(*JobSystem, @ptrCast(c.JPC_JobSystem_Create(args.max_jobs, args.max_barriers, args.num_threads)));
+    state.?.temp_allocator = @as(*TempAllocator, @ptrCast(c.JPC_TempAllocator_Create(args.temp_allocator_size)));
+    state.?.job_system = @as(*JobSystem, @ptrCast(c.JPC_JobSystem_Create(args.max_jobs, args.max_barriers, args.num_threads)));
+}
+
+pub fn preReload() GlobalState {
+    const tmp = state.?;
+    state = null;
+    return tmp;
+}
+
+pub fn postReload(allocator: std.mem.Allocator, prev_state: GlobalState) void {
+    std.debug.assert(state == null);
+
+    state = prev_state;
+    state.?.mem_allocator = allocator;
+    state.?.mem_allocations.allocator = allocator;
+
+    c.JPC_RegisterCustomAllocator(zphysicsAlloc, zphysicsFree, zphysicsAlignedAlloc, zphysicsFree);
 }
 
 pub fn deinit() void {
-    c.JPC_JobSystem_Destroy(@as(*c.JPC_JobSystem, @ptrCast(job_system)));
-    job_system = null;
-    c.JPC_TempAllocator_Destroy(@as(*c.JPC_TempAllocator, @ptrCast(temp_allocator)));
-    temp_allocator = null;
+    c.JPC_JobSystem_Destroy(@as(*c.JPC_JobSystem, @ptrCast(state.?.job_system)));
+    c.JPC_TempAllocator_Destroy(@as(*c.JPC_TempAllocator, @ptrCast(state.?.temp_allocator)));
     c.JPC_DestroyFactory();
 
-    mem_allocations.?.deinit();
-    mem_allocations = null;
-    mem_allocator = null;
+    state.?.mem_allocations.deinit();
+    state = null;
+}
+
+pub fn registerTrace(trace: ?TraceFunc) void {
+    c.JPC_RegisterTrace(trace);
+}
+
+pub fn registerAssertFailed(assert_failed: ?AssertFailedFunc) void {
+    c.JPC_RegisterAssertFailed(assert_failed);
 }
 //--------------------------------------------------------------------------------------------------
 //
@@ -1412,8 +1496,8 @@ pub const PhysicsSystem = opaque {
             delta_time,
             args.collision_steps,
             args.integration_sub_steps,
-            @as(*c.JPC_TempAllocator, @ptrCast(temp_allocator)),
-            @as(*c.JPC_JobSystem, @ptrCast(job_system)),
+            @as(*c.JPC_TempAllocator, @ptrCast(state.?.temp_allocator)),
+            @as(*c.JPC_JobSystem, @ptrCast(state.?.job_system)),
         );
 
         switch (res) {
@@ -1754,7 +1838,7 @@ pub const BodyInterface = opaque {
         return rotation;
     }
 
-    pub fn setRotation(body_iface: *BodyInterface, body_id: BodyId, in_rotation: [4]Real, in_activation_type: Activation) void {
+    pub fn setRotation(body_iface: *BodyInterface, body_id: BodyId, in_rotation: [4]f32, in_activation_type: Activation) void {
         c.JPC_BodyInterface_SetRotation(@as(*c.JPC_BodyInterface, @ptrCast(body_iface)), body_id, &in_rotation, @intFromEnum(in_activation_type));
     }
 
@@ -2314,7 +2398,7 @@ pub const CharacterVirtual = opaque {
             args.object_layer_filter,
             args.body_filter,
             args.shape_filter,
-            @as(*c.JPC_TempAllocator, @ptrCast(temp_allocator)),
+            @as(*c.JPC_TempAllocator, @ptrCast(state.?.temp_allocator)),
         );
     }
 
@@ -3031,8 +3115,8 @@ pub const DecoratedShapeSettings = opaque {
 
     pub fn createRotatedTranslated(
         inner_shape: *const ShapeSettings,
-        rotation: [4]Real,
-        translation: [3]Real,
+        rotation: [4]f32,
+        translation: [3]f32,
     ) !*DecoratedShapeSettings {
         const settings = c.JPC_RotatedTranslatedShapeSettings_Create(
             @as(*const c.JPC_ShapeSettings, @ptrCast(inner_shape)),
@@ -3043,7 +3127,7 @@ pub const DecoratedShapeSettings = opaque {
         return @as(*DecoratedShapeSettings, @ptrCast(settings));
     }
 
-    pub fn createScaled(inner_shape: *const ShapeSettings, scale: [3]Real) !*DecoratedShapeSettings {
+    pub fn createScaled(inner_shape: *const ShapeSettings, scale: [3]f32) !*DecoratedShapeSettings {
         const settings = c.JPC_ScaledShapeSettings_Create(
             @as(*const c.JPC_ShapeSettings, @ptrCast(inner_shape)),
             &scale,
@@ -3052,7 +3136,7 @@ pub const DecoratedShapeSettings = opaque {
         return @as(*DecoratedShapeSettings, @ptrCast(settings));
     }
 
-    pub fn createOffsetCenterOfMass(inner_shape: *const ShapeSettings, offset: [3]Real) !*DecoratedShapeSettings {
+    pub fn createOffsetCenterOfMass(inner_shape: *const ShapeSettings, offset: [3]f32) !*DecoratedShapeSettings {
         const settings = c.JPC_OffsetCenterOfMassShapeSettings_Create(
             @as(*const c.JPC_ShapeSettings, @ptrCast(inner_shape)),
             &offset,
@@ -3081,7 +3165,7 @@ pub const CompoundShapeSettings = opaque {
         return @as(*CompoundShapeSettings, @ptrCast(settings));
     }
 
-    pub fn addShape(settings: *CompoundShapeSettings, position: [3]Real, rotation: [4]Real, shape: *const ShapeSettings, user_data: u32) void {
+    pub fn addShape(settings: *CompoundShapeSettings, position: [3]f32, rotation: [4]f32, shape: *const ShapeSettings, user_data: u32) void {
         c.JPC_CompoundShapeSettings_AddShape(
             @as(*c.JPC_CompoundShapeSettings, @ptrCast(settings)),
             &position,
@@ -3144,6 +3228,16 @@ pub const Shape = opaque {
         user_convex8 = c.JPC_SHAPE_SUB_TYPE_USER_CONVEX8,
     };
 
+    pub const SupportingFace = extern struct {
+        num_points: u32 align(16),
+        points: [32][4]f32 align(16), // 4th element is ignored; world space
+
+        comptime {
+            assert(@sizeOf(SupportingFace) == @sizeOf(c.JPC_Shape_SupportingFace));
+            assert(@offsetOf(SupportingFace, "points") == @offsetOf(c.JPC_Shape_SupportingFace, "points"));
+        }
+    };
+
     fn Methods(comptime T: type) type {
         return struct {
             pub fn asShape(shape: *const T) *const Shape {
@@ -3183,14 +3277,93 @@ pub const Shape = opaque {
                 return c.JPC_Shape_SetUserData(@as(*c.JPC_Shape, @ptrCast(shape)), user_data);
             }
 
-            pub fn getCenterOfMass(shape: *const T) [3]Real {
-                var center: [3]Real = undefined;
+            pub fn getVolume(shape: *const T) f32 {
+                return c.JPC_Shape_GetVolume(@as(*const c.JPC_Shape, @ptrCast(shape)));
+            }
+
+            pub fn getCenterOfMass(shape: *const T) [3]f32 {
+                var center: [3]f32 = undefined;
                 c.JPC_Shape_GetCenterOfMass(@as(*const c.JPC_Shape, @ptrCast(shape)), &center);
                 return center;
+            }
+
+            pub fn getLocalBounds(shape: *const T) AABox {
+                const aabox = c.JPC_Shape_GetLocalBounds(@as(*const c.JPC_Shape, @ptrCast(shape)));
+                return @as(*AABox, @constCast(@ptrCast(&aabox))).*;
+            }
+
+            pub fn getSurfaceNormal(shape: *const T, sub_shape_id: SubShapeId, local_pos: [3]f32) [3]f32 {
+                var normal: [3]f32 = undefined;
+                c.JPC_Shape_GetSurfaceNormal(
+                    @as(*const c.JPC_Shape, @ptrCast(shape)),
+                    sub_shape_id,
+                    &local_pos,
+                    &normal,
+                );
+                return normal;
+            }
+
+            pub fn getSupportingFace(
+                shape: *const T,
+                sub_shape_id: SubShapeId,
+                direction: [3]f32,
+                shape_scale: [3]f32,
+                com_transform: [16]f32,
+            ) SupportingFace {
+                const c_face = c.JPC_Shape_GetSupportingFace(
+                    @as(*const c.JPC_Shape, @ptrCast(shape)),
+                    sub_shape_id,
+                    &direction,
+                    &shape_scale,
+                    &com_transform,
+                );
+                return @as(*const SupportingFace, @ptrCast(&c_face)).*;
+            }
+
+            pub fn castRay(
+                shape: *const T,
+                ray: RayCast,
+                args: struct {
+                    sub_shape_id_creator: SubShapeIDCreator = .{},
+                },
+            ) struct { has_hit: bool, hit: RayCastResult } {
+                var hit: RayCastResult = .{};
+                const has_hit = c.JPC_Shape_CastRay(
+                    @as(*const c.JPC_Shape, @ptrCast(shape)),
+                    @as(*const c.JPC_RayCast, @ptrCast(&ray)),
+                    @as(*const c.JPC_SubShapeIDCreator, @ptrCast(&args.sub_shape_id_creator)),
+                    @as(*c.JPC_RayCastResult, @ptrCast(&hit)),
+                );
+                return .{ .has_hit = has_hit, .hit = hit };
             }
         };
     }
 };
+
+//--------------------------------------------------------------------------------------------------
+//
+// BoxShape (-> Shape)
+//
+//--------------------------------------------------------------------------------------------------
+pub const BoxShape = opaque {
+    pub usingnamespace Shape.Methods(@This());
+
+    pub fn asBoxShape(shape: *const Shape) *const BoxShape {
+        assert(shape.getSubType() == .box);
+        return @as(*const BoxShape, @ptrCast(shape));
+    }
+    pub fn asBoxShapeMut(shape: *Shape) *BoxShape {
+        assert(shape.getSubType() == .box);
+        return @as(*BoxShape, @ptrCast(shape));
+    }
+
+    pub fn getHalfExtent(shape: *const BoxShape) [3]f32 {
+        var half_extent: [3]f32 = undefined;
+        c.JPC_BoxShape_GetHalfExtent(@as(*const c.JPC_BoxShape, @ptrCast(shape)), &half_extent);
+        return half_extent;
+    }
+};
+
 //--------------------------------------------------------------------------------------------------
 //
 // ConvexHullShape (-> Shape)
@@ -3420,17 +3593,17 @@ pub const Constraint = opaque {
 //
 //--------------------------------------------------------------------------------------------------
 fn zphysicsAlloc(size: usize) callconv(.C) ?*anyopaque {
-    mem_mutex.lock();
-    defer mem_mutex.unlock();
+    state.?.mem_mutex.lock();
+    defer state.?.mem_mutex.unlock();
 
-    const ptr = mem_allocator.?.rawAlloc(
+    const ptr = state.?.mem_allocator.rawAlloc(
         size,
         std.math.log2_int(u29, @as(u29, @intCast(mem_alignment))),
         @returnAddress(),
     );
     if (ptr == null) @panic("zphysics: out of memory");
 
-    mem_allocations.?.put(
+    state.?.mem_allocations.put(
         @intFromPtr(ptr),
         .{ .size = @as(u48, @intCast(size)), .alignment = mem_alignment },
     ) catch @panic("zphysics: out of memory");
@@ -3439,17 +3612,17 @@ fn zphysicsAlloc(size: usize) callconv(.C) ?*anyopaque {
 }
 
 fn zphysicsAlignedAlloc(size: usize, alignment: usize) callconv(.C) ?*anyopaque {
-    mem_mutex.lock();
-    defer mem_mutex.unlock();
+    state.?.mem_mutex.lock();
+    defer state.?.mem_mutex.unlock();
 
-    const ptr = mem_allocator.?.rawAlloc(
+    const ptr = state.?.mem_allocator.rawAlloc(
         size,
         std.math.log2_int(u29, @as(u29, @intCast(alignment))),
         @returnAddress(),
     );
     if (ptr == null) @panic("zphysics: out of memory");
 
-    mem_allocations.?.put(
+    state.?.mem_allocations.put(
         @intFromPtr(ptr),
         .{ .size = @as(u32, @intCast(size)), .alignment = @as(u16, @intCast(alignment)) },
     ) catch @panic("zphysics: out of memory");
@@ -3459,14 +3632,14 @@ fn zphysicsAlignedAlloc(size: usize, alignment: usize) callconv(.C) ?*anyopaque 
 
 fn zphysicsFree(maybe_ptr: ?*anyopaque) callconv(.C) void {
     if (maybe_ptr) |ptr| {
-        mem_mutex.lock();
-        defer mem_mutex.unlock();
+        state.?.mem_mutex.lock();
+        defer state.?.mem_mutex.unlock();
 
-        const info = mem_allocations.?.fetchRemove(@intFromPtr(ptr)).?.value;
+        const info = state.?.mem_allocations.fetchRemove(@intFromPtr(ptr)).?.value;
 
         const mem = @as([*]u8, @ptrCast(ptr))[0..info.size];
 
-        mem_allocator.?.rawFree(
+        state.?.mem_allocator.rawFree(
             mem,
             std.math.log2_int(u29, @as(u29, @intCast(info.alignment))),
             @returnAddress(),
@@ -3983,6 +4156,14 @@ test "zphysics.body.basic" {
     const floor_shape = try floor_shape_settings.createShape();
     defer floor_shape.release();
 
+    var shape_ray = RayCast{ .origin = .{ 0, 2, 0, 1 }, .direction = .{ 101, -1, 0, 0 } };
+    var shape_result = floor_shape.castRay(shape_ray, .{});
+    try expect(shape_result.has_hit == false);
+
+    shape_ray = RayCast{ .origin = .{ 0, 2, 0, 1 }, .direction = .{ 100, -1, 0, 0 } };
+    shape_result = floor_shape.castRay(shape_ray, .{});
+    try expect(shape_result.has_hit == true);
+
     const floor_settings = BodyCreationSettings{
         .position = .{ 0.0, -1.0, 0.0, 1.0 },
         .rotation = .{ 0.0, 0.0, 0.0, 1.0 },
@@ -4458,8 +4639,8 @@ const test_cb1 = struct {
         }
         fn drawGeometry(
             self: *MyDebugRenderer,
-            model_matrix: *const [16]Real,
-            world_space_bound: *const DebugRenderer.AABox,
+            model_matrix: *const RMatrix,
+            world_space_bound: *const AABox,
             lod_scale_sq: f32,
             color: DebugRenderer.Color,
             geometry: *const DebugRenderer.Geometry,

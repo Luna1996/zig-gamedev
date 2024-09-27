@@ -1,10 +1,9 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
-const Options = @import("../../build.zig").Options;
 const content_dir = "simple_raytracer_content/";
 
-pub fn build(b: *std.Build, options: Options) *std.Build.Step.Compile {
+pub fn build(b: *std.Build, options: anytype) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
         .name = "simple_raytracer",
         .root_source_file = .{ .path = thisDir() ++ "/src/simple_raytracer.zig" },
@@ -12,29 +11,24 @@ pub fn build(b: *std.Build, options: Options) *std.Build.Step.Compile {
         .optimize = options.optimize,
     });
 
-    @import("system_sdk").addLibraryPathsTo(exe);
-
     const zpix = b.dependency("zpix", .{
         .target = options.target,
     });
     exe.root_module.addImport("zpix", zpix.module("root"));
 
-    const zwin32 = b.dependency("zwin32", .{
-        .target = options.target,
+    const zwindows = b.dependency("zwindows", .{
+        .zxaudio2_debug_layer = options.zxaudio2_debug_layer,
+        .zd3d12_debug_layer = options.zd3d12_debug_layer,
+        .zd3d12_gbv = options.zd3d12_gbv,
     });
-    const zwin32_module = zwin32.module("root");
-    exe.root_module.addImport("zwin32", zwin32_module);
+    const zwindows_module = zwindows.module("zwindows");
+    const zd3d12_module = zwindows.module("zd3d12");
 
-    const zd3d12 = b.dependency("zd3d12", .{
-        .target = options.target,
-        .debug_layer = options.zd3d12_enable_debug_layer,
-        .gbv = options.zd3d12_enable_gbv,
-    });
-    const zd3d12_module = zd3d12.module("root");
+    exe.root_module.addImport("zwindows", zwindows_module);
     exe.root_module.addImport("zd3d12", zd3d12_module);
 
     @import("../common/build.zig").link(exe, .{
-        .zwin32 = zwin32_module,
+        .zwindows = zwindows_module,
         .zd3d12 = zd3d12_module,
     });
 
@@ -59,7 +53,7 @@ pub fn build(b: *std.Build, options: Options) *std.Build.Step.Compile {
     // is required by DirectX 12 Agility SDK.
     exe.rdynamic = true;
 
-    @import("zwin32").install_d3d12(&exe.step, .bin);
+    @import("zwindows").install_d3d12(&exe.step, .bin);
 
     return exe;
 }
@@ -175,9 +169,9 @@ fn makeDxcCmd(
 
     const dxc_command = [9][]const u8{
         if (@import("builtin").target.os.tag == .windows)
-            thisDir() ++ "/../../libs/zwin32/bin/x64/dxc.exe"
+            thisDir() ++ "/../../libs/zwindows/bin/x64/dxc.exe"
         else if (@import("builtin").target.os.tag == .linux)
-            thisDir() ++ "/../../libs/zwin32/bin/x64/dxc",
+            thisDir() ++ "/../../libs/zwindows/bin/x64/dxc",
         thisDir() ++ "/" ++ input_path,
         if (entry_point.len == 0) "" else "/E " ++ entry_point,
         "/Fo " ++ shader_dir ++ output_filename,
@@ -190,7 +184,7 @@ fn makeDxcCmd(
 
     const cmd_step = b.addSystemCommand(&dxc_command);
     if (@import("builtin").target.os.tag == .linux)
-        cmd_step.setEnvironmentVariable("LD_LIBRARY_PATH", thisDir() ++ "/../../libs/zwin32/bin/x64");
+        cmd_step.setEnvironmentVariable("LD_LIBRARY_PATH", thisDir() ++ "/../../libs/zwindows/bin/x64");
     dxc_step.dependOn(&cmd_step.step);
 }
 

@@ -1,11 +1,9 @@
 const std = @import("std");
 
-const Options = @import("../../build.zig").Options;
-
 const demo_name = "physics_test_wgpu";
 const content_dir = demo_name ++ "_content/";
 
-pub fn build(b: *std.Build, options: Options) *std.Build.Step.Compile {
+pub fn build(b: *std.Build, options: anytype) *std.Build.Step.Compile {
     const cwd_path = b.pathJoin(&.{ "samples", demo_name });
     const src_path = b.pathJoin(&.{ cwd_path, "src" });
     const exe = b.addExecutable(.{
@@ -14,8 +12,6 @@ pub fn build(b: *std.Build, options: Options) *std.Build.Step.Compile {
         .target = options.target,
         .optimize = options.optimize,
     });
-
-    @import("system_sdk").addLibraryPathsTo(exe);
 
     const zglfw = b.dependency("zglfw", .{
         .target = options.target,
